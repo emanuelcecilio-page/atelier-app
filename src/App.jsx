@@ -444,7 +444,7 @@ function TopBar({ view, timer, setTimer, projects, settings, online, crud }) {
     const rate = project?.hourly_rate || settings.hourlyRate;
     const ok = await hoursCrud.insert({
       id: uid(), date: todayISO(), project_id: timer.projectId, description: timer.description || '',
-      hours: Math.round(totalHours * 100) / 100, rate, iva_rate: settings.ivaRate, billed: false, created_at: Date.now()
+      hours: Math.round(totalHours * 100) / 100, rate, iva_rate: settings.ivaRate, billed: false, : Date.now()
     });
     if (ok !== false) setTimer(null);
   };
@@ -612,7 +612,7 @@ function ClientsView({ crud, clients, projects, invoices, online }) {
   }).filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()) || (c.nif || '').includes(search)), [clients, projects, invoices, search]);
 
   const save = async (form) => {
-    const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), created_at: Date.now(), ...form });
+    const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), ...form });
     if (ok !== false) { setModal(false); setEditing(null); }
   };
   const remove = async (id) => {
@@ -694,7 +694,7 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
   }).filter(p => (filter === 'Todos' || p.status === filter) && (!search || p.name.toLowerCase().includes(search.toLowerCase()) || p.clientName.toLowerCase().includes(search.toLowerCase()))), [projects, hours, clients, filter, search]);
 
   const save = async (form) => {
-    const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), created_at: Date.now(), ...form });
+    const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), ...form });
     if (ok !== false) { setModal(false); setEditing(null); }
   };
   const remove = async (id) => {
@@ -802,7 +802,7 @@ function HoursView({ crud, hours, projects, settings, online }) {
   }), [rows]);
 
   const save = async (form) => {
-    const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), created_at: Date.now(), billed: false, ...form });
+    const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), billed: false, ...form });
     if (ok !== false) { setModal(false); setEditing(null); }
   };
   const remove = (id) => { if (confirm('Eliminar registo?')) crud.remove(id); };
