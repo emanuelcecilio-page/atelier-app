@@ -444,7 +444,7 @@ function TopBar({ view, timer, setTimer, projects, settings, online, crud }) {
     const rate = project?.hourly_rate || settings.hourlyRate;
     const ok = await hoursCrud.insert({
       id: uid(), date: todayISO(), project_id: timer.projectId, description: timer.description || '',
-      hours: Math.round(totalHours * 100) / 100, rate, iva_rate: settings.ivaRate, billed: false, : Date.now()
+      hours: Math.round(totalHours * 100) / 100, rate, iva_rate: settings.ivaRate, billed: false
     });
     if (ok !== false) setTimer(null);
   };
