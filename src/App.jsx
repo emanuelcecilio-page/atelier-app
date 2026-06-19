@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   LayoutDashboard, Users, FolderKanban, Clock, FileText, CalendarCheck,
   Settings, Plus, X, Pencil, Trash2, Check, Play, Square, Search,
-  Download, Upload, CalendarDays, ChevronLeft, ChevronRight, LogOut, WifiOff
+  Download, Upload, CalendarDays, ChevronLeft, ChevronRight, LogOut, WifiOff, Menu
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -127,6 +127,7 @@ export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [timer, setTimer] = useState(null);
   const [syncStatus, setSyncStatus] = useState('synced'); // syncing | synced | error
+  const [menuOpen, setMenuOpen] = useState(false);
   const online = useOnline();
 
   // Auth
@@ -246,29 +247,39 @@ export default function App() {
 
   const { clients, projects, hours, invoices, obligations, events } = data;
 
+  const closeMenu = () => setMenuOpen(false);
+
   return (
     <>
       <GlobalStyles />
-      <div className="sans" style={{ background: T.bg, color: T.ink, minHeight: '100vh', display: 'flex' }}>
-        <Sidebar view={view} setView={setView} user={user} onLogout={logout} syncStatus={syncStatus} online={online} />
-        <div style={{ flex: 1, marginLeft: 220, minWidth: 0 }}>
-          <TopBar
-            view={view} timer={timer} setTimer={setTimer}
-            projects={projects} settings={settings}
-            online={online} crud={makeCrud}
+      <div className="sans" style={{ background: T.bg, color: T.ink, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <TopBar
+          view={view} timer={timer} setTimer={setTimer}
+          projects={projects} settings={settings}
+          online={online} crud={makeCrud}
+          menuOpen={menuOpen} setMenuOpen={setMenuOpen}
+        />
+        <div style={{ display: 'flex', flex: 1, minWidth: 0 }}>
+          <Sidebar 
+            view={view} setView={setView} user={user} onLogout={logout} 
+            syncStatus={syncStatus} online={online}
+            menuOpen={menuOpen} closeMenu={closeMenu}
           />
-          {!online && <OfflineBanner />}
-          <main style={{ padding: '28px 32px', maxWidth: 1400 }}>
-            {view === 'dashboard' && <Dashboard {...{ clients, projects, hours, invoices, obligations, setView }} />}
-            {view === 'clients' && <ClientsView crud={makeCrud('clients', 'clients')} {...{ clients, projects, invoices, user, online }} />}
-            {view === 'projects' && <ProjectsView crud={makeCrud('projects', 'projects')} {...{ projects, clients, hours, invoices, settings, user, online }} />}
-            {view === 'hours' && <HoursView crud={makeCrud('hours', 'hours')} {...{ hours, projects, settings, user, online }} />}
-            {view === 'invoices' && <InvoicesView crud={makeCrud('invoices', 'invoices')} {...{ invoices, clients, projects, settings, user, online }} />}
-            {view === 'fiscal' && <FiscalView crud={makeCrud('obligations', 'obligations')} {...{ obligations, user, online }} />}
-            {view === 'agenda' && <AgendaView crud={makeCrud('events', 'events')} {...{ obligations, invoices, projects, clients, events, user, online }} />}
-            {view === 'settings' && <SettingsView {...{ settings, setSettings, data, user, online, supabaseClient: supabase, onRefresh: refresh }} />}
-          </main>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            {!online && <OfflineBanner />}
+            <main style={{ padding: '28px 32px', maxWidth: 1400, flex: 1, overflowY: 'auto' }}>
+              {view === 'dashboard' && <Dashboard {...{ clients, projects, hours, invoices, obligations, setView }} />}
+              {view === 'clients' && <ClientsView crud={makeCrud('clients', 'clients')} {...{ clients, projects, invoices, user, online }} />}
+              {view === 'projects' && <ProjectsView crud={makeCrud('projects', 'projects')} {...{ projects, clients, hours, invoices, settings, user, online }} />}
+              {view === 'hours' && <HoursView crud={makeCrud('hours', 'hours')} {...{ hours, projects, settings, user, online }} />}
+              {view === 'invoices' && <InvoicesView crud={makeCrud('invoices', 'invoices')} {...{ invoices, clients, projects, settings, user, online }} />}
+              {view === 'fiscal' && <FiscalView crud={makeCrud('obligations', 'obligations')} {...{ obligations, user, online }} />}
+              {view === 'agenda' && <AgendaView crud={makeCrud('events', 'events')} {...{ obligations, invoices, projects, clients, events, user, online }} />}
+              {view === 'settings' && <SettingsView {...{ settings, setSettings, data, user, online, supabaseClient: supabase, onRefresh: refresh }} />}
+            </main>
+          </div>
         </div>
+        {menuOpen && <div className="mobile-menu-overlay" onClick={closeMenu} style={{ position: 'fixed', inset: 0, background: 'rgba(22,24,26,0.3)', zIndex: 40 }} />}
       </div>
     </>
   );
@@ -339,6 +350,15 @@ function GlobalStyles() {
       .empty { padding: 60px 20px; text-align: center; color: ${T.inkSoft}; }
       .empty-title { font-size: 14px; color: ${T.ink}; margin-bottom: 4px; font-weight: 500; }
       .empty-sub { font-size: 13px; color: ${T.inkSoft}; }
+      
+      /* Mobile responsive */
+      @media (max-width: 768px) {
+        .sidebar { width: 80vw; max-width: 280px; }
+        .mobile-menu-btn { display: inline-flex !important; }
+        header { flex-direction: column; align-items: flex-start; }
+        main { padding: 20px 16px !important; }
+        .input { font-size: 16px; } /* Prevent mobile zoom on input focus */
+      }
     `}</style>
   );
 }
@@ -372,7 +392,7 @@ function LoginScreen({ onLogin }) {
 // ============================================================
 // Sidebar
 // ============================================================
-function Sidebar({ view, setView, user, onLogout, syncStatus, online }) {
+function Sidebar({ view, setView, user, onLogout, syncStatus, online, menuOpen, closeMenu }) {
   const items = [
     { id: 'dashboard', label: 'Painel', icon: LayoutDashboard },
     { id: 'clients', label: 'Clientes', icon: Users },
@@ -385,8 +405,14 @@ function Sidebar({ view, setView, user, onLogout, syncStatus, online }) {
   ];
   const dot = !online ? T.alert : syncStatus === 'synced' ? T.positive : syncStatus === 'syncing' ? T.accent : T.alert;
   const dotLabel = !online ? 'Offline' : syncStatus === 'synced' ? 'Sincronizado' : syncStatus === 'syncing' ? 'A sincronizar…' : 'Erro de sync';
+  
+  const handleNavClick = (id) => {
+    setView(id);
+    closeMenu();
+  };
+
   return (
-    <aside style={{ width: 220, background: T.card, borderRight: `1px solid ${T.rule}`, position: 'fixed', top: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column' }}>
+    <aside className="sidebar" style={{ width: 220, background: T.card, borderRight: `1px solid ${T.rule}`, position: 'fixed', top: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', zIndex: 50, transform: menuOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 0.3s ease', paddingTop: 64 }}>
       <div style={{ padding: '22px 18px 16px', borderBottom: `1px solid ${T.rule}` }}>
         <div className="mono" style={{ fontSize: 11, color: T.inkSoft, letterSpacing: '0.12em' }}>ATL · 001</div>
         <div style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>Atelier</div>
@@ -396,7 +422,7 @@ function Sidebar({ view, setView, user, onLogout, syncStatus, online }) {
         {items.map(item => {
           const Icon = item.icon;
           return (
-            <div key={item.id} className={`nav-item ${view === item.id ? 'active' : ''}`} onClick={() => setView(item.id)}>
+            <div key={item.id} className={`nav-item ${view === item.id ? 'active' : ''}`} onClick={() => handleNavClick(item.id)}>
               <Icon size={15} strokeWidth={1.75} /><span>{item.label}</span>
             </div>
           );
@@ -418,7 +444,7 @@ function Sidebar({ view, setView, user, onLogout, syncStatus, online }) {
 // ============================================================
 // TopBar + timer
 // ============================================================
-function TopBar({ view, timer, setTimer, projects, settings, online, crud }) {
+function TopBar({ view, timer, setTimer, projects, settings, online, crud, menuOpen, setMenuOpen }) {
   const [, setTick] = useState(0);
   const [showStart, setShowStart] = useState(false);
   useEffect(() => {
@@ -450,10 +476,20 @@ function TopBar({ view, timer, setTimer, projects, settings, online, crud }) {
   };
 
   return (
-    <header style={{ background: T.card, borderBottom: `1px solid ${T.rule}`, padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 64 }}>
-      <div>
-        <div className="mono" style={{ fontSize: 10, color: T.inkMuted, letterSpacing: '0.15em' }}>{todayISO().toUpperCase()}</div>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>{titles[view]}</h1>
+    <header style={{ background: T.card, borderBottom: `1px solid ${T.rule}`, padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 64, zIndex: 30, position: 'relative', gap: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+        <button 
+          className="btn-icon mobile-menu-btn"
+          onClick={() => setMenuOpen(!menuOpen)}
+          style={{ display: 'none' }}
+          aria-label="Menu"
+        >
+          <Menu size={20} />
+        </button>
+        <div style={{ minWidth: 0 }}>
+          <div className="mono" style={{ fontSize: 10, color: T.inkMuted, letterSpacing: '0.15em' }}>{todayISO().toUpperCase()}</div>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titles[view]}</h1>
+        </div>
       </div>
       {timer ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.accentBg, border: `1px solid ${T.accent}`, padding: '8px 14px' }}>
@@ -469,7 +505,7 @@ function TopBar({ view, timer, setTimer, projects, settings, online, crud }) {
           </button>
         </div>
       ) : (
-        <button className="btn-secondary" onClick={() => setShowStart(true)} disabled={!online} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button className="btn-secondary" onClick={() => setShowStart(true)} disabled={!online} style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <Play size={13} fill="currentColor" /> Iniciar cronómetro
         </button>
       )}
