@@ -719,7 +719,9 @@ function ClientsView({ crud, clients, projects, invoices, online }) {
 }
 
 function ClientModal({ client, onSave, onClose }) {
-  const [f, setF] = useState(client || { name: '', nif: '', email: '', phone: '', address: '', notes: '' });
+  const [f, setF] = useState(client
+    ? { name: client.name || '', nif: client.nif || '', email: client.email || '', phone: client.phone || '', address: client.address || '', notes: client.notes || '' }
+    : { name: '', nif: '', email: '', phone: '', address: '', notes: '' });
   return (
     <Modal title={client ? 'Editar cliente' : 'Novo cliente'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
@@ -810,7 +812,9 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
 }
 
 function ProjectModal({ project, clients, settings, onSave, onClose }) {
-  const [f, setF] = useState(project || { name: '', code: '', client_id: clients[0]?.id || '', phase: PHASES[0], status: 'Activo', budget: '', hourly_rate: settings.hourlyRate, start_date: todayISO(), notes: '' });
+  const [f, setF] = useState(project
+    ? { name: project.name || '', code: project.code || '', client_id: project.client_id || clients[0]?.id || '', phase: project.phase || PHASES[0], status: project.status || 'Activo', budget: project.budget || '', hourly_rate: project.hourly_rate || settings.hourlyRate, start_date: project.start_date || todayISO(), notes: project.notes || '' }
+    : { name: '', code: '', client_id: clients[0]?.id || '', phase: PHASES[0], status: 'Activo', budget: '', hourly_rate: settings.hourlyRate, start_date: todayISO(), notes: '' });
   return (
     <Modal title={project ? 'Editar projecto' : 'Novo projecto'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
