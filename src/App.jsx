@@ -926,7 +926,11 @@ function HoursView({ crud, hours, projects, settings, online }) {
 
 function HoursModal({ entry, projects, settings, onSave, onClose }) {
   const [f, setF] = useState(entry || { date: todayISO(), project_id: projects.find(p => p.status === 'Activo')?.id || projects[0]?.id || '', description: '', hours: 1, rate: settings.hourlyRate, iva_rate: settings.ivaRate, billed: false });
-  useEffect(() => { if (entry) return; const p = projects.find(pr => pr.id === f.project_id); if (p?.hourly_rate) setF(x => ({ ...x, rate: p.hourly_rate })); }, [f.project_id]);
+  useEffect(() => {
+    if (entry) return; // não aplicar em edição de registo existente
+    const p = projects.find(pr => pr.id === f.project_id);
+    setF(x => ({ ...x, rate: p?.hourly_rate || settings.hourlyRate }));
+  }, [f.project_id]);
   return (
     <Modal title={entry ? 'Editar registo' : 'Novo registo de horas'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
