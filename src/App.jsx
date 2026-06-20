@@ -22,8 +22,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ---------- IndexedDB (cache de leitura offline) ----------
 const DB_NAME = 'atelier_local';
-const DB_VERSION = 1;
-const STORES = ['clients', 'projects', 'hours', 'invoices', 'obligations', 'events', 'settings'];
+const DB_VERSION = 2;
+const STORES = ['clients', 'projects', 'hours', 'invoices', 'obligations', 'events', 'settings', 'tranches'];
 
 const openDB = () => new Promise((resolve, reject) => {
   const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -131,7 +131,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('dashboard');
-  const [data, setData] = useState({ clients: [], projects: [], hours: [], invoices: [], obligations: [], events: [] });
+  const [data, setData] = useState({ clients: [], projects: [], hours: [], invoices: [], obligations: [], events: [], tranches: [] });
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [timer, setTimer] = useState(null);
   const [syncStatus, setSyncStatus] = useState('synced'); // syncing | synced | error
@@ -154,30 +154,32 @@ export default function App() {
     if (!user) return;
     if (!online) {
       // offline: ler da cache
-      const [clients, projects, hours, invoices, obligations, events] = await Promise.all(
-        ['clients', 'projects', 'hours', 'invoices', 'obligations', 'events'].map(cacheReadAll)
+      const [clients, projects, hours, invoices, obligations, events, tranches] = await Promise.all(
+        ['clients', 'projects', 'hours', 'invoices', 'obligations', 'events', 'tranches'].map(cacheReadAll)
       );
-      setData({ clients, projects, hours, invoices, obligations, events });
+      setData({ clients, projects, hours, invoices, obligations, events, tranches });
       const cs = await cacheReadAll('settings');
       if (cs[0]) setSettings(cs[0]);
       return;
     }
     setSyncStatus('syncing');
     try {
-      const [c, p, h, i, o, e, s] = await Promise.all([
+      const [c, p, h, i, o, e, s, t] = await Promise.all([
         supabase.from('clients').select('*').eq('user_id', user.id),
         supabase.from('projects').select('*').eq('user_id', user.id),
         supabase.from('hours').select('*').eq('user_id', user.id),
         supabase.from('invoices').select('*').eq('user_id', user.id),
         supabase.from('obligations').select('*').eq('user_id', user.id),
         supabase.from('events').select('*').eq('user_id', user.id),
-        supabase.from('settings').select('*').eq('user_id', user.id).maybeSingle()
+        supabase.from('settings').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('project_tranches').select('*').eq('user_id', user.id)
       ]);
-      const err = [c, p, h, i, o, e].find(r => r.error);
+      const err = [c, p, h, i, o, e, t].find(r => r.error);
       if (err) throw err.error;
       const next = {
         clients: c.data || [], projects: p.data || [], hours: h.data || [],
-        invoices: i.data || [], obligations: o.data || [], events: e.data || []
+        invoices: i.data || [], obligations: o.data || [], events: e.data || [],
+        tranches: t.data || []
       };
       setData(next);
       if (s.data) setSettings(mapSettingsFromDb(s.data));
@@ -195,7 +197,7 @@ export default function App() {
   // Realtime: qualquer alteração nas tabelas repuxa os dados
   useEffect(() => {
     if (!user || !online) return;
-    const tables = ['clients', 'projects', 'hours', 'invoices', 'obligations', 'events', 'settings'];
+    const tables = ['clients', 'projects', 'hours', 'invoices', 'obligations', 'events', 'settings', 'project_tranches'];
     const channels = tables.map(t =>
       supabase.channel(`${t}:${user.id}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: t, filter: `user_id=eq.${user.id}` }, () => refresh())
@@ -253,7 +255,7 @@ export default function App() {
   if (loading) return <Splash text="a carregar…" />;
   if (!user) return <LoginScreen onLogin={login} />;
 
-  const { clients, projects, hours, invoices, obligations, events } = data;
+  const { clients, projects, hours, invoices, obligations, events, tranches } = data;
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -278,7 +280,7 @@ export default function App() {
             <main style={{ padding: '28px 32px', maxWidth: 1400, flex: 1, overflowY: 'auto' }}>
               {view === 'dashboard' && <Dashboard {...{ clients, projects, hours, invoices, obligations, setView }} />}
               {view === 'clients' && <ClientsView crud={makeCrud('clients', 'clients')} {...{ clients, projects, invoices, user, online }} />}
-              {view === 'projects' && <ProjectsView crud={makeCrud('projects', 'projects')} {...{ projects, clients, hours, invoices, settings, user, online }} />}
+              {view === 'projects' && <ProjectsView crud={makeCrud('projects', 'projects')} tranchesCrud={makeCrud('project_tranches', 'tranches')} invoicesCrud={makeCrud('invoices', 'invoices')} {...{ projects, clients, hours, invoices, tranches, settings, user, online }} />}
               {view === 'hours' && <HoursView crud={makeCrud('hours', 'hours')} {...{ hours, projects, settings, user, online }} />}
               {view === 'invoices' && <InvoicesView crud={makeCrud('invoices', 'invoices')} {...{ invoices, clients, projects, settings, user, online }} />}
               {view === 'fiscal' && <FiscalView crud={makeCrud('obligations', 'obligations')} {...{ obligations, user, online }} />}
@@ -597,8 +599,11 @@ function Dashboard({ clients, projects, hours, invoices, obligations, setView })
   const activeList = useMemo(() => projects.filter(p => p.status === 'Activo').map(p => {
     const hrs = hours.filter(h => h.project_id === p.id);
     const totalHours = hrs.reduce((s, h) => s + (h.hours || 0), 0);
-    const earned = hrs.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0);
-    return { ...p, totalHours, earned, progress: p.budget ? (earned / p.budget) * 100 : 0, clientName: clients.find(c => c.id === p.client_id)?.name || '—' };
+    const hoursNet = hrs.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0);
+    const isFixed = p.billing_type === 'fixed';
+    const earned = isFixed ? (p.fixed_net_amount || 0) : hoursNet;
+    const budget = isFixed ? (p.fixed_net_amount || 0) : p.budget;
+    return { ...p, totalHours, earned, budget, progress: budget ? (earned / budget) * 100 : 0, clientName: clients.find(c => c.id === p.client_id)?.name || '—' };
   }).sort((a, b) => b.progress - a.progress).slice(0, 6), [projects, hours, clients]);
 
   return (
@@ -750,7 +755,7 @@ function ClientModal({ client, onSave, onClose }) {
 // ============================================================
 // PROJECTS
 // ============================================================
-function ProjectsView({ crud, projects, clients, hours, invoices, settings, online }) {
+function ProjectsView({ crud, tranchesCrud, invoicesCrud, projects, clients, hours, invoices, tranches, settings, online }) {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filter, setFilter] = useState('Activo');
@@ -760,20 +765,29 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
   const rows = useMemo(() => projects.map(p => {
     const hrs = hours.filter(h => h.project_id === p.id);
     const totalHours = hrs.reduce((s, h) => s + (h.hours || 0), 0);
-    // soma do líquido desejado por entrada (cada h.rate é o líquido/hora dessa entrada)
-    const netEarned = hrs.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0);
     const irsRate = settings.irsRetention || 0;
     const ivaRate = settings.ivaRate || 0;
+    const isFixed = p.billing_type === 'fixed';
+    // soma do líquido desejado por entrada (cada h.rate é o líquido/hora dessa entrada)
+    const hoursNet = hrs.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0);
+    const netEarned = isFixed ? (p.fixed_net_amount || 0) : hoursNet;
     const grossEarned = irsRate > 0 ? netEarned / (1 - irsRate / 100) : netEarned;
     const grossWithIvaEarned = grossEarned * (1 + ivaRate / 100);
+    // em projectos fixos, as horas registadas são "extra" (não contam para o valor fixo)
+    const extraNet = isFixed ? hoursNet : 0;
+    const extraGross = isFixed ? (irsRate > 0 ? extraNet / (1 - irsRate / 100) : extraNet) : 0;
+    const extraGrossWithIva = extraGross * (1 + ivaRate / 100);
+    const projectTranches = tranches.filter(t => t.project_id === p.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     return {
       ...p,
       totalHours,
       earned: netEarned, // mantém compat: "earned" = líquido (usado no cálculo de % consumo de orçamento)
       netEarned, grossEarned, grossWithIvaEarned,
+      extraNet, extraGross, extraGrossWithIva,
+      projectTranches,
       clientName: clients.find(c => c.id === p.client_id)?.name || '—'
     };
-  }).filter(p => (filter === 'Todos' || p.status === filter) && (!search || p.name.toLowerCase().includes(search.toLowerCase()) || p.clientName.toLowerCase().includes(search.toLowerCase()))), [projects, hours, clients, filter, search, settings.irsRetention, settings.ivaRate]);
+  }).filter(p => (filter === 'Todos' || p.status === filter) && (!search || p.name.toLowerCase().includes(search.toLowerCase()) || p.clientName.toLowerCase().includes(search.toLowerCase()))), [projects, hours, clients, tranches, filter, search, settings.irsRetention, settings.ivaRate]);
 
   const save = async (form) => {
     const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), ...form });
@@ -798,10 +812,11 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
         {rows.length === 0 ? <div className="empty"><div className="empty-title">Sem projectos</div></div> : (
           <div className="table-wrap">
           <table>
-            <thead><tr><th>Projecto</th><th>Cliente</th><th>Fase</th><th>Estado</th><th style={{ textAlign: 'right' }}>Horas</th><th style={{ textAlign: 'right' }}>Orçamento</th><th style={{ textAlign: 'right' }}>Consumo</th><th style={{ width: 80 }}></th></tr></thead>
+            <thead><tr><th>Projecto</th><th>Cliente</th><th>Fase</th><th>Tipo</th><th>Estado</th><th style={{ textAlign: 'right' }}>Horas</th><th style={{ textAlign: 'right' }}>Valor líquido</th><th style={{ textAlign: 'right' }}>Consumo</th><th style={{ width: 80 }}></th></tr></thead>
             <tbody>
               {rows.map(p => {
-                const pct = p.budget ? (p.earned / p.budget) * 100 : null;
+                const isFixed = p.billing_type === 'fixed';
+                const pct = isFixed ? (p.netEarned ? 100 : 0) : (p.budget ? (p.earned / p.budget) * 100 : null);
                 const isOpen = expanded === p.id;
                 return (
                   <React.Fragment key={p.id}>
@@ -809,9 +824,10 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
                     <td><div style={{ fontWeight: 500 }}>{p.name}</div>{p.code && <div className="mono" style={{ fontSize: 11, color: T.inkSoft, marginTop: 2 }}>{p.code}</div>}</td>
                     <td style={{ color: T.inkSoft }}>{p.clientName}</td>
                     <td style={{ fontSize: 12, color: T.inkSoft }}>{p.phase || '—'}</td>
+                    <td><span className="badge" style={{ background: isFixed ? T.accentBg : T.cardSoft, color: isFixed ? T.accent : T.inkSoft, borderColor: isFixed ? T.accent : T.rule }}>{isFixed ? 'Orçamento' : 'À hora'}</span></td>
                     <td><StatusBadge status={p.status} /></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(p.totalHours, 1)}h</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{p.budget ? fmtEUR(p.budget) : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(p.totalHours, 1)}h{isFixed && p.totalHours > 0 && <div style={{ fontSize: 10, color: T.accent }}>extra</div>}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{fmtEUR(p.netEarned)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{pct !== null ? <span style={{ color: pct > 90 ? T.alert : T.ink }}>{fmtNum(pct, 0)}%</span> : '—'}</td>
                     <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                       <button className="btn-icon" onClick={() => { setEditing(p); setModal(true); }} disabled={!online}><Pencil size={14} /></button>
@@ -820,20 +836,31 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
                   </tr>
                   {isOpen && (
                     <tr>
-                      <td colSpan={8} style={{ background: T.cardSoft, padding: 0 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, padding: 16 }}>
-                          <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
-                            <div className="label" style={{ marginBottom: 4 }}>Líquido (s/ IRS)</div>
-                            <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.netEarned)}</div>
+                      <td colSpan={9} style={{ background: T.cardSoft, padding: 0 }}>
+                        <div style={{ padding: 16 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, marginBottom: isFixed ? 16 : 0 }}>
+                            <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
+                              <div className="label" style={{ marginBottom: 4 }}>Líquido (s/ IRS)</div>
+                              <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.netEarned)}</div>
+                            </div>
+                            <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
+                              <div className="label" style={{ marginBottom: 4 }}>Bruto (c/ IRS, p/ factura)</div>
+                              <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.grossEarned)}</div>
+                            </div>
+                            <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
+                              <div className="label" style={{ marginBottom: 4 }}>Bruto c/ IRS e IVA</div>
+                              <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.grossWithIvaEarned)}</div>
+                            </div>
                           </div>
-                          <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
-                            <div className="label" style={{ marginBottom: 4 }}>Bruto (c/ IRS, p/ factura)</div>
-                            <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.grossEarned)}</div>
-                          </div>
-                          <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
-                            <div className="label" style={{ marginBottom: 4 }}>Bruto c/ IRS e IVA</div>
-                            <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.grossWithIvaEarned)}</div>
-                          </div>
+                          {isFixed && p.totalHours > 0 && (
+                            <div style={{ display: 'flex', gap: 14, marginBottom: 16, padding: '10px 14px', background: T.accentBg, border: `1px solid ${T.accent}`, fontSize: 12 }}>
+                              <span style={{ color: T.accent, fontWeight: 600 }}>Trabalho extra registado:</span>
+                              <span className="mono">{fmtNum(p.totalHours, 1)}h líquido {fmtEUR(p.extraNet)} · bruto {fmtEUR(p.extraGross)} · c/IVA {fmtEUR(p.extraGrossWithIva)}</span>
+                            </div>
+                          )}
+                          {isFixed && (
+                            <TranchesManager project={p} tranches={p.projectTranches} tranchesCrud={tranchesCrud} invoicesCrud={invoicesCrud} clients={clients} settings={settings} online={online} />
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -851,10 +878,128 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
   );
 }
 
+// ---- Gestor de tranches (projectos com orçamento fixo) ----
+function TranchesManager({ project, tranches, tranchesCrud, invoicesCrud, clients, settings, online }) {
+  const [editingTranches, setEditingTranches] = useState(false);
+  const [draft, setDraft] = useState(tranches.length ? tranches.map(t => ({ ...t })) : [{ id: uid(), name: 'Sinal', percentage: 50 }, { id: uid(), name: 'Final', percentage: 50 }]);
+  const [invoiceModalFor, setInvoiceModalFor] = useState(null);
+
+  const totalPct = draft.reduce((s, t) => s + (Number(t.percentage) || 0), 0);
+  const pctOk = Math.abs(totalPct - 100) < 0.01;
+
+  const tiers = (pct) => {
+    const net = (project.netEarned || 0) * (pct / 100);
+    const irsRate = settings.irsRetention || 0;
+    const ivaRate = settings.ivaRate || 0;
+    const gross = irsRate > 0 ? net / (1 - irsRate / 100) : net;
+    const grossWithIva = gross * (1 + ivaRate / 100);
+    return { net, gross, grossWithIva };
+  };
+
+  const addRow = () => setDraft(d => [...d, { id: uid(), name: '', percentage: 0 }]);
+  const removeRow = (id) => setDraft(d => d.filter(t => t.id !== id));
+  const updateRow = (id, patch) => setDraft(d => d.map(t => t.id === id ? { ...t, ...patch } : t));
+
+  const saveTranches = async () => {
+    if (!pctOk) { alert('As percentagens têm de somar 100%.'); return; }
+    // remove tranches antigas que já não existem no draft, grava as novas/alteradas
+    const draftIds = new Set(draft.map(t => t.id));
+    for (const old of tranches) { if (!draftIds.has(old.id)) await tranchesCrud.remove(old.id); }
+    for (let i = 0; i < draft.length; i++) {
+      const t = draft[i];
+      const existing = tranches.find(x => x.id === t.id);
+      const payload = { project_id: project.id, name: t.name, percentage: Number(t.percentage) || 0, sort_order: i };
+      if (existing) await tranchesCrud.update(t.id, payload);
+      else await tranchesCrud.insert({ id: t.id, invoiced: false, ...payload });
+    }
+    setEditingTranches(false);
+  };
+
+  if (editingTranches) {
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.rule}`, padding: 14 }}>
+        <div className="label" style={{ marginBottom: 10 }}>Tranches de pagamento</div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {draft.map(t => (
+            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 32px', gap: 8, alignItems: 'center' }}>
+              <input className="input" placeholder="Nome (ex: Sinal)" value={t.name} onChange={e => updateRow(t.id, { name: e.target.value })} />
+              <input className="input mono" type="number" step="1" value={t.percentage === 0 ? '' : t.percentage} onChange={e => updateRow(t.id, { percentage: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => updateRow(t.id, { percentage: parseFloat(e.target.value) || 0 })} placeholder="%" />
+              <button className="btn-icon" onClick={() => removeRow(t.id)}><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+          <button className="btn-secondary" onClick={addRow} style={{ fontSize: 12 }}><Plus size={12} style={{ display: 'inline', marginRight: 4 }} />Adicionar tranche</button>
+          <span className="mono" style={{ fontSize: 13, color: pctOk ? T.positive : T.alert, fontWeight: 600 }}>Total: {fmtNum(totalPct, 0)}%</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+          <button className="btn-secondary" onClick={() => { setDraft(tranches.length ? tranches.map(t => ({ ...t })) : [{ id: uid(), name: 'Sinal', percentage: 50 }, { id: uid(), name: 'Final', percentage: 50 }]); setEditingTranches(false); }}>Cancelar</button>
+          <button className="btn-primary" onClick={saveTranches} disabled={!online}>Guardar tranches</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.rule}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: `1px solid ${T.ruleSoft}` }}>
+        <div className="label" style={{ margin: 0 }}>Tranches de pagamento</div>
+        <button className="btn-icon" onClick={() => setEditingTranches(true)} disabled={!online}><Pencil size={13} /></button>
+      </div>
+      {tranches.length === 0 ? (
+        <div style={{ padding: 14, fontSize: 13, color: T.inkSoft }}>Sem tranches definidas. <span style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={() => setEditingTranches(true)}>Configurar</span></div>
+      ) : (
+        <div>
+          {tranches.map(t => {
+            const v = tiers(t.percentage);
+            return (
+              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: `1px solid ${T.ruleSoft}` }}>
+                <div>
+                  <div style={{ fontWeight: 500, fontSize: 13 }}>{t.name} <span className="mono" style={{ color: T.inkSoft, fontWeight: 400 }}>({fmtNum(t.percentage, 0)}%)</span></div>
+                  <div className="mono" style={{ fontSize: 11, color: T.inkSoft, marginTop: 2 }}>líq. {fmtEUR(v.net)} · bruto {fmtEUR(v.gross)} · c/IVA {fmtEUR(v.grossWithIva)}</div>
+                </div>
+                {t.invoiced ? (
+                  <span className="badge" style={{ background: T.positiveBg, color: T.positive, borderColor: T.positive }}>Facturada</span>
+                ) : (
+                  <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setInvoiceModalFor(t)} disabled={!online}>Marcar facturada</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {invoiceModalFor && (
+        <InvoiceModal
+          invoice={null}
+          clients={clients}
+          projects={[project]}
+          settings={settings}
+          prefill={{
+            client_id: project.client_id,
+            project_id: project.id,
+            subtotal: tiers(invoiceModalFor.percentage).gross,
+            iva_rate: settings.ivaRate,
+            irs_retention: settings.irsRetention
+          }}
+          onSave={async (form) => {
+            const ok = await invoicesCrud.insert({ id: uid(), ...form });
+            if (ok !== false) {
+              await tranchesCrud.update(invoiceModalFor.id, { invoiced: true });
+              setInvoiceModalFor(null);
+            }
+          }}
+          onClose={() => setInvoiceModalFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 function ProjectModal({ project, clients, settings, onSave, onClose }) {
   const [f, setF] = useState(project
-    ? { name: project.name || '', code: project.code || '', client_id: project.client_id || clients[0]?.id || '', phase: project.phase || PHASES[0], status: project.status || 'Activo', budget: project.budget || 0, hourly_rate: project.hourly_rate || settings.hourlyRate, start_date: project.start_date || todayISO(), notes: project.notes || '' }
-    : { name: '', code: '', client_id: clients[0]?.id || '', phase: PHASES[0], status: 'Activo', budget: 0, hourly_rate: settings.hourlyRate, start_date: todayISO(), notes: '' });
+    ? { name: project.name || '', code: project.code || '', client_id: project.client_id || clients[0]?.id || '', phase: project.phase || PHASES[0], status: project.status || 'Activo', budget: project.budget || 0, hourly_rate: project.hourly_rate || settings.hourlyRate, billing_type: project.billing_type || 'hourly', fixed_net_amount: project.fixed_net_amount || 0, start_date: project.start_date || todayISO(), notes: project.notes || '' }
+    : { name: '', code: '', client_id: clients[0]?.id || '', phase: PHASES[0], status: 'Activo', budget: 0, hourly_rate: settings.hourlyRate, billing_type: 'hourly', fixed_net_amount: 0, start_date: todayISO(), notes: '' });
+  const isEditingExisting = !!project;
   return (
     <Modal title={project ? 'Editar projecto' : 'Novo projecto'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
@@ -867,10 +1012,23 @@ function ProjectModal({ project, clients, settings, onSave, onClose }) {
           <Field label="Fase"><select className="input" value={f.phase} onChange={e => setF({ ...f, phase: e.target.value })}>{PHASES.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
           <Field label="Estado"><select className="input" value={f.status} onChange={e => setF({ ...f, status: e.target.value })}>{PROJECT_STATUS.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <Field label="Orçamento (€)"><input className="input mono" type="number" step="0.01" value={f.budget === 0 ? '' : f.budget} onChange={e => setF({ ...f, budget: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, budget: parseFloat(e.target.value) || 0 }))} /></Field>
-          <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourly_rate === 0 ? '' : f.hourly_rate} onChange={e => setF({ ...f, hourly_rate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, hourly_rate: parseFloat(e.target.value) || 0 }))} /></Field>
-        </div>
+        <Field label="Tipo de facturação">
+          <select className="input" value={f.billing_type} onChange={e => setF({ ...f, billing_type: e.target.value })} disabled={isEditingExisting}>
+            <option value="hourly">À hora</option>
+            <option value="fixed">Orçamento fixo</option>
+          </select>
+          {isEditingExisting && <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 4 }}>O tipo de facturação não pode ser alterado após a criação do projecto.</div>}
+        </Field>
+        {f.billing_type === 'hourly' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Field label="Orçamento (€) — opcional, referência"><input className="input mono" type="number" step="0.01" value={f.budget === 0 ? '' : f.budget} onChange={e => setF({ ...f, budget: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, budget: parseFloat(e.target.value) || 0 }))} /></Field>
+            <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourly_rate === 0 ? '' : f.hourly_rate} onChange={e => setF({ ...f, hourly_rate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, hourly_rate: parseFloat(e.target.value) || 0 }))} /></Field>
+          </div>
+        ) : (
+          <Field label="Valor líquido desejado total (€)">
+            <input className="input mono" type="number" step="0.01" value={f.fixed_net_amount === 0 ? '' : f.fixed_net_amount} onChange={e => setF({ ...f, fixed_net_amount: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, fixed_net_amount: parseFloat(e.target.value) || 0 }))} />
+          </Field>
+        )}
         <Field label="Data de início"><input className="input mono" type="date" value={f.start_date || ''} onChange={e => setF({ ...f, start_date: e.target.value })} /></Field>
         <Field label="Notas"><textarea className="input" rows={3} value={f.notes || ''} onChange={e => setF({ ...f, notes: e.target.value })} /></Field>
       </div>
@@ -1097,16 +1255,30 @@ function InvoicesView({ crud, invoices, clients, projects, settings, online }) {
   );
 }
 
-function InvoiceModal({ invoice, clients, projects, settings, onSave, onClose }) {
+function InvoiceModal({ invoice, clients, projects, settings, prefill, onSave, onClose }) {
   const today = todayISO();
-  const [f, setF] = useState(invoice || {
+  const [f, setF] = useState(invoice || (prefill ? (() => {
+    const sub = Number(prefill.subtotal) || 0;
+    const ivaR = Number(prefill.iva_rate) || 0;
+    const irsR = Number(prefill.irs_retention) || 0;
+    const iva_amount = (sub * ivaR) / 100;
+    const irs_amount = (sub * irsR) / 100;
+    return {
+      invoice_number: '', emission_date: today,
+      due_date: addDays(today, settings.paymentDueDays || 30),
+      client_id: prefill.client_id || '', project_id: prefill.project_id || '', subtotal: sub,
+      iva_rate: ivaR, iva_amount,
+      irs_retention: irsR, irs_amount,
+      total_amount: sub + iva_amount - irs_amount, status: 'Emitida', notes: ''
+    };
+  })() : {
     invoice_number: '', emission_date: today,
     due_date: addDays(today, settings.paymentDueDays || 30),
     client_id: '', project_id: '', subtotal: 0,
     iva_rate: settings.ivaRate, iva_amount: 0,
     irs_retention: settings.irsRetention, irs_amount: 0,
     total_amount: 0, status: 'Emitida', notes: ''
-  });
+  }));
 
   const recalc = (patch) => {
     const next = { ...f, ...patch };
