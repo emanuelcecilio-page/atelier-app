@@ -103,6 +103,14 @@ const daysUntil = (d) => Math.ceil((new Date(d).setHours(0,0,0,0) - new Date().s
 const addDays = (date, days) => { const d = new Date(date); d.setDate(d.getDate() + days); return d.toISOString().split('T')[0]; };
 const addMonths = (date, months) => { const d = new Date(date); d.setMonth(d.getMonth() + months); return d.toISOString().split('T')[0]; };
 
+// rate guardada = valor LÍQUIDO desejado/hora. Devolve os 3 níveis: líquido, bruto (p/ factura), bruto+IVA.
+const calcRateTiers = (netRate, irsRate = 0, ivaRate = 0) => {
+  const net = Number(netRate) || 0;
+  const gross = irsRate > 0 ? net / (1 - irsRate / 100) : net;
+  const grossWithIva = gross * (1 + (ivaRate || 0) / 100);
+  return { net, gross, grossWithIva };
+};
+
 // ---------- Online detection hook ----------
 function useOnline() {
   const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -747,16 +755,25 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
   const [editing, setEditing] = useState(null);
   const [filter, setFilter] = useState('Activo');
   const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState(null);
 
   const rows = useMemo(() => projects.map(p => {
     const hrs = hours.filter(h => h.project_id === p.id);
+    const totalHours = hrs.reduce((s, h) => s + (h.hours || 0), 0);
+    // soma do líquido desejado por entrada (cada h.rate é o líquido/hora dessa entrada)
+    const netEarned = hrs.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0);
+    const irsRate = settings.irsRetention || 0;
+    const ivaRate = settings.ivaRate || 0;
+    const grossEarned = irsRate > 0 ? netEarned / (1 - irsRate / 100) : netEarned;
+    const grossWithIvaEarned = grossEarned * (1 + ivaRate / 100);
     return {
       ...p,
-      totalHours: hrs.reduce((s, h) => s + (h.hours || 0), 0),
-      earned: hrs.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0),
+      totalHours,
+      earned: netEarned, // mantém compat: "earned" = líquido (usado no cálculo de % consumo de orçamento)
+      netEarned, grossEarned, grossWithIvaEarned,
       clientName: clients.find(c => c.id === p.client_id)?.name || '—'
     };
-  }).filter(p => (filter === 'Todos' || p.status === filter) && (!search || p.name.toLowerCase().includes(search.toLowerCase()) || p.clientName.toLowerCase().includes(search.toLowerCase()))), [projects, hours, clients, filter, search]);
+  }).filter(p => (filter === 'Todos' || p.status === filter) && (!search || p.name.toLowerCase().includes(search.toLowerCase()) || p.clientName.toLowerCase().includes(search.toLowerCase()))), [projects, hours, clients, filter, search, settings.irsRetention, settings.ivaRate]);
 
   const save = async (form) => {
     const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), ...form });
@@ -785,8 +802,10 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
             <tbody>
               {rows.map(p => {
                 const pct = p.budget ? (p.earned / p.budget) * 100 : null;
+                const isOpen = expanded === p.id;
                 return (
-                  <tr key={p.id}>
+                  <React.Fragment key={p.id}>
+                  <tr onClick={() => setExpanded(isOpen ? null : p.id)} style={{ cursor: 'pointer' }}>
                     <td><div style={{ fontWeight: 500 }}>{p.name}</div>{p.code && <div className="mono" style={{ fontSize: 11, color: T.inkSoft, marginTop: 2 }}>{p.code}</div>}</td>
                     <td style={{ color: T.inkSoft }}>{p.clientName}</td>
                     <td style={{ fontSize: 12, color: T.inkSoft }}>{p.phase || '—'}</td>
@@ -794,11 +813,32 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
                     <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(p.totalHours, 1)}h</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{p.budget ? fmtEUR(p.budget) : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{pct !== null ? <span style={{ color: pct > 90 ? T.alert : T.ink }}>{fmtNum(pct, 0)}%</span> : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                       <button className="btn-icon" onClick={() => { setEditing(p); setModal(true); }} disabled={!online}><Pencil size={14} /></button>
                       <button className="btn-icon" onClick={() => remove(p.id)} disabled={!online}><Trash2 size={14} /></button>
                     </td>
                   </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={8} style={{ background: T.cardSoft, padding: 0 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, padding: 16 }}>
+                          <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
+                            <div className="label" style={{ marginBottom: 4 }}>Líquido (s/ IRS)</div>
+                            <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.netEarned)}</div>
+                          </div>
+                          <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
+                            <div className="label" style={{ marginBottom: 4 }}>Bruto (c/ IRS, p/ factura)</div>
+                            <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.grossEarned)}</div>
+                          </div>
+                          <div style={{ padding: '10px 14px', background: T.card, border: `1px solid ${T.ruleSoft}` }}>
+                            <div className="label" style={{ marginBottom: 4 }}>Bruto c/ IRS e IVA</div>
+                            <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{fmtEUR(p.grossWithIvaEarned)}</div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -829,7 +869,7 @@ function ProjectModal({ project, clients, settings, onSave, onClose }) {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label="Orçamento (€)"><input className="input mono" type="number" step="0.01" value={f.budget || ''} onChange={e => setF({ ...f, budget: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="Taxa hora (€)"><input className="input mono" type="number" step="0.01" value={f.hourly_rate || ''} onChange={e => setF({ ...f, hourly_rate: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourly_rate || ''} onChange={e => setF({ ...f, hourly_rate: parseFloat(e.target.value) || 0 })} /></Field>
         </div>
         <Field label="Data de início"><input className="input mono" type="date" value={f.start_date || ''} onChange={e => setF({ ...f, start_date: e.target.value })} /></Field>
         <Field label="Notas"><textarea className="input" rows={3} value={f.notes || ''} onChange={e => setF({ ...f, notes: e.target.value })} /></Field>
@@ -864,11 +904,15 @@ function HoursView({ crud, hours, projects, settings, online }) {
     return r.sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [hours, fProject, fMonth, fBilled]);
 
-  const totals = useMemo(() => ({
-    hours: rows.reduce((s, h) => s + (h.hours || 0), 0),
-    value: rows.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0),
-    withIva: rows.reduce((s, h) => s + (h.hours * (h.rate || 0) * (1 + (h.iva_rate || 0) / 100)), 0)
-  }), [rows]);
+  const totals = useMemo(() => {
+    const totalHours = rows.reduce((s, h) => s + (h.hours || 0), 0);
+    const netValue = rows.reduce((s, h) => s + (h.hours * (h.rate || 0)), 0);
+    const irsRate = settings.irsRetention || 0;
+    const ivaRate = settings.ivaRate || 0;
+    const grossValue = irsRate > 0 ? netValue / (1 - irsRate / 100) : netValue;
+    const grossWithIva = grossValue * (1 + ivaRate / 100);
+    return { hours: totalHours, net: netValue, gross: grossValue, grossWithIva };
+  }, [rows, settings.irsRetention, settings.ivaRate]);
 
   const save = async (form) => {
     const ok = editing ? await crud.update(editing.id, form) : await crud.insert({ id: uid(), billed: false, ...form });
@@ -884,16 +928,17 @@ function HoursView({ crud, hours, projects, settings, online }) {
         <select className="input" style={{ width: 'auto' }} value={fBilled} onChange={e => setFBilled(e.target.value)}><option value="all">Todos</option><option value="unbilled">Por facturar</option><option value="billed">Facturados</option></select>
         <button className="btn-primary" onClick={() => { setEditing(null); setModal(true); }} disabled={!online}><Plus size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: '-2px' }} />Novo registo</button>
       </Toolbar>
-      <div style={{ background: T.card, border: `1px solid ${T.rule}`, borderBottom: 'none', padding: '14px 20px', display: 'flex', gap: 32 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.rule}`, borderBottom: 'none', padding: '14px 20px', display: 'flex', gap: 32, flexWrap: 'wrap' }}>
         <div><div className="label">Total horas</div><div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>{fmtNum(totals.hours, 1)}h</div></div>
-        <div><div className="label">Valor (s/ IVA)</div><div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>{fmtEUR(totals.value)}</div></div>
-        <div><div className="label">Valor (c/ IVA)</div><div className="mono" style={{ fontSize: 20, fontWeight: 600, color: T.inkSoft }}>{fmtEUR(totals.withIva)}</div></div>
+        <div><div className="label">Líquido (s/ IRS)</div><div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>{fmtEUR(totals.net)}</div></div>
+        <div><div className="label">Bruto (c/ IRS)</div><div className="mono" style={{ fontSize: 20, fontWeight: 600, color: T.inkSoft }}>{fmtEUR(totals.gross)}</div></div>
+        <div><div className="label">Bruto c/ IRS e IVA</div><div className="mono" style={{ fontSize: 20, fontWeight: 600, color: T.inkSoft }}>{fmtEUR(totals.grossWithIva)}</div></div>
       </div>
       <div style={{ background: T.card, border: `1px solid ${T.rule}` }}>
         {rows.length === 0 ? <div className="empty"><div className="empty-title">Sem registos</div><div className="empty-sub">Use o cronómetro ou "Novo registo"</div></div> : (
           <div className="table-wrap">
           <table>
-            <thead><tr><th>Data</th><th>Projecto</th><th>Descrição</th><th style={{ textAlign: 'right' }}>Horas</th><th style={{ textAlign: 'right' }}>Taxa</th><th style={{ textAlign: 'right' }}>Valor</th><th style={{ textAlign: 'right' }}>IVA</th><th>Estado</th><th style={{ width: 80 }}></th></tr></thead>
+            <thead><tr><th>Data</th><th>Projecto</th><th>Descrição</th><th style={{ textAlign: 'right' }}>Horas</th><th style={{ textAlign: 'right' }}>Taxa (líq.)</th><th style={{ textAlign: 'right' }}>Valor (líq.)</th><th style={{ textAlign: 'right' }}>IVA</th><th>Estado</th><th style={{ width: 80 }}></th></tr></thead>
             <tbody>
               {rows.map(h => {
                 const p = projects.find(pr => pr.id === h.project_id);
@@ -941,13 +986,13 @@ function HoursModal({ entry, projects, settings, onSave, onClose }) {
         <Field label="Descrição da tarefa"><input className="input" value={f.description} onChange={e => setF({ ...f, description: e.target.value })} placeholder="ex: desenho técnico do piso 1" /></Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
           <Field label="Horas"><input className="input mono" type="number" step="0.25" value={f.hours} onChange={e => setF({ ...f, hours: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="Taxa (€/h)"><input className="input mono" type="number" step="0.01" value={f.rate} onChange={e => setF({ ...f, rate: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="Taxa líquida (€/h)"><input className="input mono" type="number" step="0.01" value={f.rate} onChange={e => setF({ ...f, rate: parseFloat(e.target.value) || 0 })} /></Field>
           <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.iva_rate} onChange={e => setF({ ...f, iva_rate: parseFloat(e.target.value) || 0 })} /></Field>
         </div>
         <div style={{ padding: '12px 14px', background: T.cardSoft, border: `1px solid ${T.ruleSoft}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: T.inkSoft }}>Subtotal</span><span className="mono">{fmtEUR(f.hours * f.rate)}</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}><span style={{ color: T.inkSoft }}>IVA ({f.iva_rate}%)</span><span className="mono">{fmtEUR(f.hours * f.rate * f.iva_rate / 100)}</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 600, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.rule}` }}><span>Total</span><span className="mono">{fmtEUR(f.hours * f.rate * (1 + f.iva_rate / 100))}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: T.inkSoft }}>Líquido (s/ IRS)</span><span className="mono">{fmtEUR(f.hours * f.rate)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}><span style={{ color: T.inkSoft }}>Bruto p/ factura (c/ IRS)</span><span className="mono">{fmtEUR(settings.irsRetention > 0 ? (f.hours * f.rate) / (1 - settings.irsRetention / 100) : f.hours * f.rate)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 600, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.rule}` }}><span>Bruto c/ IRS e IVA ({f.iva_rate}%)</span><span className="mono">{fmtEUR((settings.irsRetention > 0 ? (f.hours * f.rate) / (1 - settings.irsRetention / 100) : f.hours * f.rate) * (1 + f.iva_rate / 100))}</span></div>
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}><input type="checkbox" checked={f.billed} onChange={e => setF({ ...f, billed: e.target.checked })} />Já facturado</label>
       </div>
@@ -1458,7 +1503,7 @@ function SettingsView({ settings, setSettings, data, user, online, supabaseClien
         </div>
         <div style={{ padding: 20, display: 'grid', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-            <Field label="Taxa hora (€)"><input className="input mono" type="number" step="0.01" value={f.hourlyRate} onChange={e => setF({ ...f, hourlyRate: parseFloat(e.target.value) || 0 })} /></Field>
+            <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourlyRate} onChange={e => setF({ ...f, hourlyRate: parseFloat(e.target.value) || 0 })} /></Field>
             <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.ivaRate} onChange={e => setF({ ...f, ivaRate: parseFloat(e.target.value) || 0 })} /></Field>
             <Field label="Retenção IRS (%)"><input className="input mono" type="number" step="1" value={f.irsRetention} onChange={e => setF({ ...f, irsRetention: parseFloat(e.target.value) || 0 })} /></Field>
           </div>
