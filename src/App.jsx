@@ -868,8 +868,8 @@ function ProjectModal({ project, clients, settings, onSave, onClose }) {
           <Field label="Estado"><select className="input" value={f.status} onChange={e => setF({ ...f, status: e.target.value })}>{PROJECT_STATUS.map(s => <option key={s} value={s}>{s}</option>)}</select></Field>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <Field label="Orçamento (€)"><input className="input mono" type="number" step="0.01" value={f.budget || ''} onChange={e => setF({ ...f, budget: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourly_rate || ''} onChange={e => setF({ ...f, hourly_rate: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="Orçamento (€)"><input className="input mono" type="number" step="0.01" value={f.budget === 0 ? '' : f.budget} onChange={e => setF({ ...f, budget: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, budget: parseFloat(e.target.value) || 0 }))} /></Field>
+          <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourly_rate === 0 ? '' : f.hourly_rate} onChange={e => setF({ ...f, hourly_rate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, hourly_rate: parseFloat(e.target.value) || 0 }))} /></Field>
         </div>
         <Field label="Data de início"><input className="input mono" type="date" value={f.start_date || ''} onChange={e => setF({ ...f, start_date: e.target.value })} /></Field>
         <Field label="Notas"><textarea className="input" rows={3} value={f.notes || ''} onChange={e => setF({ ...f, notes: e.target.value })} /></Field>
@@ -985,9 +985,9 @@ function HoursModal({ entry, projects, settings, onSave, onClose }) {
         </div>
         <Field label="Descrição da tarefa"><input className="input" value={f.description} onChange={e => setF({ ...f, description: e.target.value })} placeholder="ex: desenho técnico do piso 1" /></Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-          <Field label="Horas"><input className="input mono" type="number" step="0.25" value={f.hours} onChange={e => setF({ ...f, hours: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="Taxa líquida (€/h)"><input className="input mono" type="number" step="0.01" value={f.rate} onChange={e => setF({ ...f, rate: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.iva_rate} onChange={e => setF({ ...f, iva_rate: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="Horas"><input className="input mono" type="number" step="0.25" value={f.hours} onChange={e => setF({ ...f, hours: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, hours: parseFloat(e.target.value) || 0 }))} /></Field>
+          <Field label="Taxa líquida (€/h)"><input className="input mono" type="number" step="0.01" value={f.rate} onChange={e => setF({ ...f, rate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, rate: parseFloat(e.target.value) || 0 }))} /></Field>
+          <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.iva_rate} onChange={e => setF({ ...f, iva_rate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, iva_rate: parseFloat(e.target.value) || 0 }))} /></Field>
         </div>
         <div style={{ padding: '12px 14px', background: T.cardSoft, border: `1px solid ${T.ruleSoft}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: T.inkSoft }}>Líquido (s/ IRS)</span><span className="mono">{fmtEUR(f.hours * f.rate)}</span></div>
@@ -1110,9 +1110,12 @@ function InvoiceModal({ invoice, clients, projects, settings, onSave, onClose })
 
   const recalc = (patch) => {
     const next = { ...f, ...patch };
-    next.iva_amount = (next.subtotal * next.iva_rate) / 100;
-    next.irs_amount = (next.subtotal * next.irs_retention) / 100;
-    next.total_amount = next.subtotal + next.iva_amount - next.irs_amount;
+    const sub = Number(next.subtotal) || 0;
+    const ivaR = Number(next.iva_rate) || 0;
+    const irsR = Number(next.irs_retention) || 0;
+    next.iva_amount = (sub * ivaR) / 100;
+    next.irs_amount = (sub * irsR) / 100;
+    next.total_amount = sub + next.iva_amount - next.irs_amount;
     setF(next);
   };
 
@@ -1129,9 +1132,9 @@ function InvoiceModal({ invoice, clients, projects, settings, onSave, onClose })
           <Field label="Projecto"><select className="input" value={f.project_id} onChange={e => setF({ ...f, project_id: e.target.value })}><option value="">— escolher —</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-          <Field label="Subtotal (€)"><input className="input mono" type="number" step="0.01" value={f.subtotal} onChange={e => recalc({ subtotal: parseFloat(e.target.value) || 0 })} autoFocus /></Field>
-          <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.iva_rate} onChange={e => recalc({ iva_rate: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="Retenção IRS (%)"><input className="input mono" type="number" step="1" value={f.irs_retention} onChange={e => recalc({ irs_retention: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="Subtotal (€)"><input className="input mono" type="number" step="0.01" value={f.subtotal} onChange={e => recalc({ subtotal: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => recalc({ subtotal: parseFloat(e.target.value) || 0 })} autoFocus /></Field>
+          <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.iva_rate} onChange={e => recalc({ iva_rate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => recalc({ iva_rate: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="Retenção IRS (%)"><input className="input mono" type="number" step="1" value={f.irs_retention} onChange={e => recalc({ irs_retention: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => recalc({ irs_retention: parseFloat(e.target.value) || 0 })} /></Field>
         </div>
         <div style={{ padding: '14px', background: T.cardSoft, border: `1px solid ${T.ruleSoft}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}><span style={{ color: T.inkSoft }}>Subtotal</span><span className="mono">{fmtEUR(f.subtotal)}</span></div>
@@ -1258,7 +1261,7 @@ function ObligationModal({ obligation, onSave, onClose }) {
         {f.label === 'Outro' && <Field label="Descrição"><input className="input" value={f.reference || ''} onChange={e => setF({ ...f, reference: e.target.value })} placeholder="Descreva a obrigação" /></Field>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label="Data limite"><input className="input mono" type="date" value={f.due_date} onChange={e => setF({ ...f, due_date: e.target.value })} /></Field>
-          <Field label="Valor estimado (€)"><input className="input mono" type="number" step="0.01" value={f.amount || ''} onChange={e => setF({ ...f, amount: parseFloat(e.target.value) || 0 })} placeholder="opcional" /></Field>
+          <Field label="Valor estimado (€)"><input className="input mono" type="number" step="0.01" value={f.amount === 0 ? '' : f.amount} onChange={e => setF({ ...f, amount: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, amount: parseFloat(e.target.value) || 0 }))} placeholder="opcional" /></Field>
         </div>
         <Field label="Periodicidade">
           <select className="input" value={f.recurrence} onChange={e => setF({ ...f, recurrence: e.target.value })}>
@@ -1503,9 +1506,9 @@ function SettingsView({ settings, setSettings, data, user, online, supabaseClien
         </div>
         <div style={{ padding: 20, display: 'grid', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-            <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourlyRate} onChange={e => setF({ ...f, hourlyRate: parseFloat(e.target.value) || 0 })} /></Field>
-            <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.ivaRate} onChange={e => setF({ ...f, ivaRate: parseFloat(e.target.value) || 0 })} /></Field>
-            <Field label="Retenção IRS (%)"><input className="input mono" type="number" step="1" value={f.irsRetention} onChange={e => setF({ ...f, irsRetention: parseFloat(e.target.value) || 0 })} /></Field>
+            <Field label="Taxa hora líquida desejada (€)"><input className="input mono" type="number" step="0.01" value={f.hourlyRate} onChange={e => setF({ ...f, hourlyRate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, hourlyRate: parseFloat(e.target.value) || 0 }))} /></Field>
+            <Field label="IVA (%)"><input className="input mono" type="number" step="1" value={f.ivaRate} onChange={e => setF({ ...f, ivaRate: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, ivaRate: parseFloat(e.target.value) || 0 }))} /></Field>
+            <Field label="Retenção IRS (%)"><input className="input mono" type="number" step="1" value={f.irsRetention} onChange={e => setF({ ...f, irsRetention: e.target.value === '' ? '' : parseFloat(e.target.value) })} onBlur={e => setF(x => ({ ...x, irsRetention: parseFloat(e.target.value) || 0 }))} /></Field>
           </div>
           <Field label="Prazo de pagamento (dias)"><input className="input mono" type="number" step="1" value={f.paymentDueDays} onChange={e => setF({ ...f, paymentDueDays: parseInt(e.target.value) || 30 })} style={{ maxWidth: 120 }} /></Field>
         </div>
