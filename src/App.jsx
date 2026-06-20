@@ -813,8 +813,8 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
 
 function ProjectModal({ project, clients, settings, onSave, onClose }) {
   const [f, setF] = useState(project
-    ? { name: project.name || '', code: project.code || '', client_id: project.client_id || clients[0]?.id || '', phase: project.phase || PHASES[0], status: project.status || 'Activo', budget: project.budget || '', hourly_rate: project.hourly_rate || settings.hourlyRate, start_date: project.start_date || todayISO(), notes: project.notes || '' }
-    : { name: '', code: '', client_id: clients[0]?.id || '', phase: PHASES[0], status: 'Activo', budget: '', hourly_rate: settings.hourlyRate, start_date: todayISO(), notes: '' });
+    ? { name: project.name || '', code: project.code || '', client_id: project.client_id || clients[0]?.id || '', phase: project.phase || PHASES[0], status: project.status || 'Activo', budget: project.budget || 0, hourly_rate: project.hourly_rate || settings.hourlyRate, start_date: project.start_date || todayISO(), notes: project.notes || '' }
+    : { name: '', code: '', client_id: clients[0]?.id || '', phase: PHASES[0], status: 'Activo', budget: 0, hourly_rate: settings.hourlyRate, start_date: todayISO(), notes: '' });
   return (
     <Modal title={project ? 'Editar projecto' : 'Novo projecto'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
@@ -1195,7 +1195,7 @@ function FiscalView({ crud, obligations, online }) {
 }
 
 function ObligationModal({ obligation, onSave, onClose }) {
-  const [f, setF] = useState(obligation || { label: '', due_date: todayISO(), amount: '', recurrence: 'quarterly', reference: '', done: false });
+  const [f, setF] = useState(obligation || { label: '', due_date: todayISO(), amount: 0, recurrence: 'quarterly', reference: '', done: false });
   const preset = OBLIGATION_PRESETS.find(p => p.label === f.label);
   return (
     <Modal title={obligation ? 'Editar obrigação' : 'Nova obrigação fiscal'} onClose={onClose}>
