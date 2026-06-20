@@ -265,7 +265,7 @@ export default function App() {
             syncStatus={syncStatus} online={online}
             menuOpen={menuOpen} closeMenu={closeMenu}
           />
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <div className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             {!online && <OfflineBanner />}
             <main style={{ padding: '28px 32px', maxWidth: 1400, flex: 1, overflowY: 'auto' }}>
               {view === 'dashboard' && <Dashboard {...{ clients, projects, hours, invoices, obligations, setView }} />}
@@ -334,8 +334,9 @@ function GlobalStyles() {
       .input { background: ${T.white}; border: 1px solid ${T.rule}; padding: 8px 10px; font-size: 13px; color: ${T.ink}; width: 100%; }
       .input:focus { outline: none; border-color: ${T.ink}; }
       .label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${T.inkSoft}; display: block; margin-bottom: 6px; }
+      .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       table { width: 100%; border-collapse: collapse; font-size: 13px; }
-      th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${T.inkSoft}; padding: 10px 12px; border-bottom: 1px solid ${T.rule}; background: ${T.cardSoft}; }
+      th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${T.inkSoft}; padding: 10px 12px; border-bottom: 1px solid ${T.rule}; background: ${T.cardSoft}; white-space: nowrap; }
       td { padding: 12px; border-bottom: 1px solid ${T.ruleSoft}; vertical-align: middle; }
       tr:hover td { background: ${T.cardSoft}; }
       .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: ${T.inkSoft}; font-size: 13px; font-weight: 500; border-left: 2px solid transparent; cursor: pointer; transition: all 0.1s; }
@@ -351,6 +352,16 @@ function GlobalStyles() {
       .empty-title { font-size: 14px; color: ${T.ink}; margin-bottom: 4px; font-weight: 500; }
       .empty-sub { font-size: 13px; color: ${T.inkSoft}; }
       
+      /* Sidebar transform: default closed (off-canvas), opened via class, always open on desktop */
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.sidebar-open { transform: translateX(0); }
+      
+      /* Desktop: sidebar always visible, content offset by its width */
+      @media (min-width: 769px) {
+        .sidebar { transform: translateX(0); }
+        .main-content { margin-left: 220px; }
+      }
+      
       /* Mobile responsive */
       @media (max-width: 768px) {
         .sidebar { width: 80vw; max-width: 280px; }
@@ -358,6 +369,20 @@ function GlobalStyles() {
         header { flex-direction: column; align-items: flex-start; }
         main { padding: 20px 16px !important; }
         .input { font-size: 16px; } /* Prevent mobile zoom on input focus */
+        .table-wrap {
+          position: relative;
+          background:
+            linear-gradient(to right, ${T.card} 0%, transparent 4%) 0 0,
+            linear-gradient(to right, transparent 96%, ${T.card} 100%) 0 0,
+            linear-gradient(to right, rgba(22,24,26,0.08), transparent 8px) 0 0,
+            linear-gradient(to left, rgba(22,24,26,0.08), transparent 8px) 100% 0;
+          background-repeat: no-repeat;
+          background-size: 24px 100%, 24px 100%, 24px 100%, 24px 100%;
+          background-attachment: local, local, scroll, scroll;
+        }
+        table { min-width: 560px; }
+        .toolbar-mobile-stack { flex-direction: column; align-items: stretch !important; }
+        .toolbar-mobile-stack > * { max-width: 100% !important; width: 100%; }
       }
     `}</style>
   );
@@ -412,7 +437,7 @@ function Sidebar({ view, setView, user, onLogout, syncStatus, online, menuOpen, 
   };
 
   return (
-    <aside className="sidebar" style={{ width: 220, background: T.card, borderRight: `1px solid ${T.rule}`, position: 'fixed', top: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', zIndex: 50, transform: menuOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 0.3s ease', paddingTop: 64 }}>
+    <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`} style={{ width: 220, background: T.card, borderRight: `1px solid ${T.rule}`, position: 'fixed', top: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', zIndex: 50, transition: 'transform 0.3s ease', paddingTop: 64 }}>
       <div style={{ padding: '22px 18px 16px', borderBottom: `1px solid ${T.rule}` }}>
         <div className="mono" style={{ fontSize: 11, color: T.inkSoft, letterSpacing: '0.12em' }}>ATL · 001</div>
         <div style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>Atelier</div>
@@ -665,6 +690,7 @@ function ClientsView({ crud, clients, projects, invoices, online }) {
       </Toolbar>
       <div style={{ background: T.card, border: `1px solid ${T.rule}` }}>
         {rows.length === 0 ? <div className="empty"><div className="empty-title">{search ? 'Nenhum cliente encontrado' : 'Ainda não tem clientes'}</div></div> : (
+          <div className="table-wrap">
           <table>
             <thead><tr><th>Nome</th><th>NIF</th><th>Contacto</th><th style={{ textAlign: 'right' }}>Projectos</th><th style={{ textAlign: 'right' }}>Facturado</th><th style={{ textAlign: 'right' }}>Em aberto</th><th style={{ width: 80 }}></th></tr></thead>
             <tbody>
@@ -684,6 +710,7 @@ function ClientsView({ crud, clients, projects, invoices, online }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
       {modal && <ClientModal client={editing} onSave={save} onClose={() => { setModal(false); setEditing(null); }} />}
@@ -750,6 +777,7 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
       </Toolbar>
       <div style={{ background: T.card, border: `1px solid ${T.rule}` }}>
         {rows.length === 0 ? <div className="empty"><div className="empty-title">Sem projectos</div></div> : (
+          <div className="table-wrap">
           <table>
             <thead><tr><th>Projecto</th><th>Cliente</th><th>Fase</th><th>Estado</th><th style={{ textAlign: 'right' }}>Horas</th><th style={{ textAlign: 'right' }}>Orçamento</th><th style={{ textAlign: 'right' }}>Consumo</th><th style={{ width: 80 }}></th></tr></thead>
             <tbody>
@@ -773,6 +801,7 @@ function ProjectsView({ crud, projects, clients, hours, invoices, settings, onli
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
       {modal && <ProjectModal project={editing} clients={clients} settings={settings} onSave={save} onClose={() => { setModal(false); setEditing(null); }} />}
@@ -858,6 +887,7 @@ function HoursView({ crud, hours, projects, settings, online }) {
       </div>
       <div style={{ background: T.card, border: `1px solid ${T.rule}` }}>
         {rows.length === 0 ? <div className="empty"><div className="empty-title">Sem registos</div><div className="empty-sub">Use o cronómetro ou "Novo registo"</div></div> : (
+          <div className="table-wrap">
           <table>
             <thead><tr><th>Data</th><th>Projecto</th><th>Descrição</th><th style={{ textAlign: 'right' }}>Horas</th><th style={{ textAlign: 'right' }}>Taxa</th><th style={{ textAlign: 'right' }}>Valor</th><th style={{ textAlign: 'right' }}>IVA</th><th>Estado</th><th style={{ width: 80 }}></th></tr></thead>
             <tbody>
@@ -882,6 +912,7 @@ function HoursView({ crud, hours, projects, settings, online }) {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
       {modal && <HoursModal entry={editing} projects={projects} settings={settings} onSave={save} onClose={() => { setModal(false); setEditing(null); }} />}
@@ -972,6 +1003,7 @@ function InvoicesView({ crud, invoices, clients, projects, settings, online }) {
       </div>
       <div style={{ background: T.card, border: `1px solid ${T.rule}` }}>
         {rows.length === 0 ? <div className="empty"><div className="empty-title">Sem facturas</div></div> : (
+          <div className="table-wrap">
           <table>
             <thead><tr><th>Nº</th><th>Cliente</th><th>Projecto</th><th>Emissão</th><th>Vencimento</th><th style={{ textAlign: 'right' }}>Subtotal</th><th style={{ textAlign: 'right' }}>IVA</th><th style={{ textAlign: 'right' }}>Retenção</th><th style={{ textAlign: 'right' }}>A receber</th><th>Estado</th><th style={{ width: 80 }}></th></tr></thead>
             <tbody>
@@ -1004,6 +1036,7 @@ function InvoicesView({ crud, invoices, clients, projects, settings, online }) {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
       {modal && <InvoiceModal invoice={editing} clients={clients} projects={projects} settings={settings} onSave={save} onClose={() => { setModal(false); setEditing(null); }} />}
@@ -1114,6 +1147,7 @@ function FiscalView({ crud, obligations, online }) {
             <div className="empty-sub">Adicione prazos fiscais para os acompanhar aqui e na Agenda</div>
           </div>
         ) : (
+          <div className="table-wrap">
           <table>
             <thead><tr><th>Obrigação</th><th>Prazo</th><th>Dias</th><th style={{ textAlign: 'right' }}>Valor estimado</th><th>Periodicidade</th><th>Referência</th><th>Estado</th><th style={{ width: 100 }}></th></tr></thead>
             <tbody>
@@ -1148,6 +1182,7 @@ function FiscalView({ crud, obligations, online }) {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
       {modal && <ObligationModal obligation={editing} onSave={save} onClose={() => { setModal(false); setEditing(null); }} />}
@@ -1492,7 +1527,7 @@ function Field({ label, children }) {
 
 function Toolbar({ children }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+    <div className="toolbar-mobile-stack" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
       {children}
     </div>
   );
