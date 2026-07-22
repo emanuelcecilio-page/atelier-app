@@ -1,7 +1,7 @@
 name: Supabase Keep-Alive
 on:
   schedule:
-    - cron: '0 0 */3 * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,6 +10,9 @@ jobs:
     steps:
       - name: Ping Supabase
         run: |
-          curl -f "https://dyttovrxxhralwgvzjab.supabase.co/rest/v1/settings?select=id&limit=1" \
+          curl -f -X POST "https://dyttovrxxhralwgvzjab.supabase.co/rest/v1/keep_alive" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{}'
